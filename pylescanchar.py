@@ -1,5 +1,9 @@
+from __future__ import print_function
+
 from bluepy.btle import Scanner, DefaultDelegate, Peripheral, BTLEException
 import binascii
+import struct
+
 
 class ScanDelegate(DefaultDelegate):
     def __init__(self):
@@ -7,9 +11,9 @@ class ScanDelegate(DefaultDelegate):
 
     def handleDiscovery(self, dev, isNewDev, isNewData):
         if isNewDev:
-            print "Discovered device", dev.addr
+            print("Discovered device", dev.addr)
         elif isNewData:
-            print "Received new data from", dev.addr
+            print("Received new data from", dev.addr)
 
 class MyDelegate(DefaultDelegate):
     def __init__(self, params):
@@ -19,7 +23,7 @@ class MyDelegate(DefaultDelegate):
     def handleNotification(self, cHandle, data):
         # ... perhaps check cHandle
         # ... process 'data'
-	return
+        return
 
 
 scanner = Scanner().withDelegate(ScanDelegate())
@@ -35,13 +39,13 @@ uuids = {
   0x2A01: { 'service': 0x1800, 'desc': "Appearance", 'type': 'U16', 'page': 24 },
   # undocumented
   0x2A02: { 'service': 0x1800, 'desc': "Peripheral Privacy Flag", 'type': 'U8' },
-  0x2A03: { 'service': 0x1800, 'desc': "Reconnection Address", 'type': 'U8' },
-  0x2A04: { 'service': 0x1800, 'desc': "Peripheral Preferred Connection Parameters", 'type': 'U8' },
+  0x2A03: { 'service': 0x1800, 'desc': "Reconnection Address", 'type': 'U8*12' },
+  0x2A04: { 'service': 0x1800, 'desc': "Peripheral Preferred Connection Parameters", 'type': 'U8*16' },
 
   # undocumented
   0x1801: { 'desc': "Generic Attribute" },
   0x2A05: { 'service': 0x1801, 'desc': "Service Changed", 'type': '??' },
-  
+
   0x180A: { 'desc': "Device Information", 'page': 24 },
   0x2A23: { 'service': 0x180A, 'desc': "System ID", 'type': 'U8*8', 'page': 24 },
   0x2A26: { 'service': 0x180A, 'desc': "Firmware revision", 'type': 'UTF8', 'page': 24 },
@@ -57,7 +61,7 @@ uuids = {
   # undocumented
   0x180F: { 'desc': "Battery Service" },
   0x2A19: { 'service': 0x180F, 'desc': "Battery Level", 'type': 'U8' },
-  
+
   0x39e1FA00: { 'desc': "Live Service", 'page': 25 },
   0x39e1FA01: { 'service': 0x39e1FA00, 'desc': "Light sensor value", 'type': 'U16', 'page': 25 },
   0x39e1FA02: { 'service': 0x39e1FA00, 'desc': "Soil EC", 'type': 'U16', 'page': 25 },
@@ -92,7 +96,7 @@ uuids = {
   0x39e1FD01: { 'service': 0x39e1FD00, 'desc': "FlowerPower current time", 'type': 'U32', 'page': 26 },
 
   0x39e1FE00: { 'desc': "Flower Power Calibration Service", 'page': 26 },
-  0x39e1FE01: { 'service': 0x39e1FE00, 'desc': "Calibration data", 'type': 'U16*x', 'page': 26 },
+  0x39e1FE01: { 'service': 0x39e1FE00, 'desc': "Calibration data", 'type': 'U16*11', 'page': 26 },
   0x39e1FE02: { 'service': 0x39e1FE00, 'desc': "Force bond characteristic", 'type': 'U8', 'page': 27 },
   0x39e1FE03: { 'service': 0x39e1FE00, 'desc': "Name", 'type': 'UTF8', 'page': 27 },
   0x39e1FE04: { 'service': 0x39e1FE00, 'desc': "Color", 'type': 'U16', 'page': 27 },
@@ -100,6 +104,14 @@ uuids = {
   0xF000FFC0: { 'desc': "Over The Air Download Service", 'page': 27 },
   0xF000FFC1: { 'service': 0xF000FFC0, 'desc': "OAD image notify", 'type': 'U8*8', 'page': 27 },
   0xF000FFC2: { 'service': 0xF000FFC0, 'desc': "OAD image block", 'type': 'U8*18', 'page': 27 },
+}
+
+decode = {
+  'float32': '<f',
+  'U8': '<B',
+  'U16': '<H',
+  'U32': '<I',
+  'U16*11': '<11H'
 }
 
 def uuid_desc(uuid):
@@ -121,9 +133,9 @@ def prop2str(prop):
     return ""
 
 for dev in devices:
-    print "Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi)
+    print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
     for (adtype, desc, value) in dev.getScanData():
-        print "  %04x: %s = %s" % (adtype, desc, value)
+        print("  %04x: %s = %s" % (adtype, desc, value))
     try:
         p = Peripheral(dev)
         p.setDelegate( MyDelegate(None) )
@@ -131,11 +143,11 @@ for dev in devices:
             uuid = str(service.uuid)
             uuid = uuid[:4] + "'''" + uuid[4:8] + "'''" # + uuid[8:] # '''
             desc = uuid_desc(str(service.uuid)[:8]) or "?"
-            print "|  Service          || <code>%s</code> || || || %s || ||" % (uuid, desc)
-            print "|-"
+            print("|  Service          || <code>%s</code> || || || %s || ||" % (uuid, desc))
+            print("|-")
             for char in service.getCharacteristics():
-		uuid = str(char.uuid)
-		uuid = uuid[:4] + "'''" + uuid[4:8] + "'''" # + uuid[8:] # '''
+                uuid = str(char.uuid)
+                uuid = uuid[:4] + "'''" + uuid[4:8] + "'''"   # + uuid[8:] # '''
                 desc = uuid_desc(str(char.uuid)[:8]) or "?"
                 type = uuid_type(str(char.uuid)[:8]) or ""
                 data = ""
@@ -146,9 +158,11 @@ for dev in devices:
                         data = '(ignored characteristic)'
                     elif type == 'UTF8':
                         data = char.read()
+                    elif type in decode.keys():
+                        data = ','.join(map(str, struct.unpack(decode[type], char.read())))
                     else:
-                        data = binascii.hexlify(char.read())
-                print "|    Characteristic || <code>%s</code> || <code>%04x</code> || %s || %s || %s || %s " % (uuid, char.properties, char.propertiesToString(), type, desc, data)
-                print "|-"
-    except BTLEException as e:
-        print "got an BTLEException: "
+                        data = '0x'+str(binascii.hexlify(char.read()))
+                print("|    Characteristic || <code>%s</code> || <code>%04x</code> || %s || %s || %s || %s " % (uuid, char.properties, char.propertiesToString(), type, desc, data))
+                print("|-")
+    except BTLEException:
+        print("got an BTLEException: ")
