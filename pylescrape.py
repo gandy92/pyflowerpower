@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from time import gmtime, strftime
 from bluepy.btle import Scanner, DefaultDelegate
 
@@ -16,15 +18,15 @@ class ScanDelegate(DefaultDelegate):
         if not flower:
             return
         #if isNewDev:
-        print strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Discovered      device", dev.addr, "rssi:",dev.rssi, "flags:",flags
+        print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Discovered      device", dev.addr, "rssi:",dev.rssi, "flags:",flags)
         #elif isNewData:
-        #    print strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Received new data from", dev.addr, "rssi:",dev.rssi, "flags:",flags
+        #    print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Received new data from", dev.addr, "rssi:",dev.rssi, "flags:",flags))
 
 scanner = Scanner().withDelegate(ScanDelegate())
 devices = scanner.scan(100.0)
 
 for dev in devices:
-    print "Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi)
+    print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
     for (adtype, desc, value) in dev.getScanData():
-        print "  %s = %s" % (desc, value)
+        print("  %s = %s" % (desc, value))
 
