@@ -3,31 +3,14 @@ from __future__ import print_function
 from bluepy.btle import UUID, Scanner, DefaultDelegate, Peripheral, BTLEException
 import binascii
 import struct
+import argparse
+from time import time
 
 debug = 0
 
-class ScanDelegate(DefaultDelegate):
-    def __init__(self):
-        DefaultDelegate.__init__(self)
 
-    def handleDiscovery(self, dev, isNewDev, isNewData):
-        if isNewDev:
-            print("Discovered device", dev.addr)
-        elif isNewData:
-            print("Received new data from", dev.addr)
-
-
-# scanner = Scanner().withDelegate(ScanDelegate())
-# devices = scanner.scan(5.0)
-ignore_char = [
-  # '00002a00-0000-1000-8000-00805f9b34fb',
-  '39e1fe02-84a8-11e2-afba-0002a5d5c51b'
-]
-
-
-def prop2str(prop):
-    return ""
-
+FP_GAP = 0x1800
+FP_DEV_NAME = 0x2A00
 
 FP_SERVICE_LIFE = 0x39e1FA00
 FP_CHAR_LIFE_DLI = 0x39e1FA01
@@ -39,13 +22,19 @@ FP_UPLOAD_TX_BUFFER = 0x39e1FB01
 FP_UPLOAD_TX_STATUS = 0x39e1FB02
 FP_UPLOAD_RX_STATUS = 0x39e1FB03
 
-FP_HISTORY = 0x39e1FC00  #: {'desc': "History Service", 'page': 26},
-FP_HISTORY_NB_ENTRIES = 0x39e1FC01  #: {'service': 0x39e1FC00, 'desc': "Nb entries", 'type': 'U16', 'page': 26},
-FP_HISTORY_LAST_INDEX = 0x39e1FC02  #: {'service': 0x39e1FC00, 'desc': "Last entry index", 'type': 'U32', 'page': 26},
-FP_HISTORY_START_INDEX = 0x39e1FC03  #: {'service': 0x39e1FC00, 'desc': "Transfer start index", 'type': 'U32', 'page': 26},
-FP_HISTORY_SESSION_ID = 0x39e1FC04  #: {'service': 0x39e1FC00, 'desc': "Current session ID", 'type': 'U16', 'page': 26},
-FP_HISTORY_SESSION_START = 0x39e1FC05  #: {'service': 0x39e1FC00, 'desc': "Current Session start index", 'type': 'U32', 'page': 26},
-FP_HISTORY_SESSION_PERIOD = 0x39e1FC06  #: {'service': 0x39e1FC00, 'desc': "Current Session period", 'type': 'U16', 'page': 26},
+FP_HISTORY = 0x39e1FC00
+FP_HISTORY_NB_ENTRIES = 0x39e1FC01
+FP_HISTORY_LAST_INDEX = 0x39e1FC02
+FP_HISTORY_START_INDEX = 0x39e1FC03
+FP_HISTORY_SESSION_ID = 0x39e1FC04
+FP_HISTORY_SESSION_START = 0x39e1FC05
+FP_HISTORY_SESSION_PERIOD = 0x39e1FC06
+
+FB_CALIB = 0x39e1FE00
+FB_CALIB_DATA = 0x39e1FE01
+
+FB_CLOCK = 0x39e1FD00
+FB_TIME = 0x39e1FD01
 
 
 def FP_UUID(val):
@@ -71,7 +60,14 @@ class FPRegister:
         return struct.unpack(self.fmt, data)[0]
 
     def read(self):
+        if self.fmt == 'utf8':
+            return self.char.read()
         return self.unpack(self.char.read())
+
+    def str(self):
+        if self.fmt == 'utf8':
+            return self.char.read()
+        return ','.join(map(str, struct.unpack(self.fmt, self.char.read())))
 
     def write(self, data):
         return self.char.write(struct.pack(self.fmt, data))
@@ -79,6 +75,8 @@ class FPRegister:
     def getHandle(self):
         return self.char.getHandle()
 
+
+CT_UTF8 = 'utf8'
 CT_U8 = '<B'
 CT_U16 = '<H'
 CT_U32 = '<L'
@@ -121,6 +119,8 @@ class FPUpload:
         self.frames_max = 0
         self.buffer_size = 0
         self.frame_set = 0
+
+        self.data = b""
 
     def handle_tx_buffer(self, data):
         data_str = ' %02x'*18 % struct.unpack('<18B', data[2:20])
@@ -171,6 +171,7 @@ class FPUpload:
         self.buffer_size = 0
         self.frame_set = 0
         self.frames_complete = 0
+
         if index is not None:
             self.c_hist_start_index.write(index)
         elif count is not None:
@@ -178,6 +179,7 @@ class FPUpload:
             last = self.c_hist_last_index.read()
             print("entries:", entries)
             print("last:", last)
+            # first entry in history seems to be entirely different
             if count > entries:
                 count = entries
             if count < 1:
@@ -199,7 +201,7 @@ class FPUpload:
                     self.set_rx_state(self.RX_ERROR)
                     break
 
-            elif self.tx_state is 1:  #self.TX_TRANSFER:
+            elif self.tx_state is self.TX_TRANSFER:
                 2 <= debug and print("TX TRANSFER")
                 if not self.p.waitForNotifications(2.0):
                     print("timeout waiting for frames")
@@ -207,7 +209,7 @@ class FPUpload:
                     break
 
             elif self.tx_state is self.TX_WAIT_ACK:
-                # print("TX WAIT_ACK")
+                3 <= debug and print("TX WAIT_ACK")
                 if self.frames_complete or self.frames_ready:
                     2 <= debug and print("frames_complete=%d, frames_ready=%d, send ACK" % (self.frames_complete, self.frames_ready))
                     self.c_upload_rxs.write(self.RX_ACK)
@@ -222,24 +224,39 @@ class FPUpload:
                 break
 
         print("upload done.")
-        data = self.frames[1]
+        self.data = self.frames[1]
         for i in range(2, self.frames_max):
-            data += self.frames[i]
+            self.data += self.frames[i]
         rest = self.buffer_size % 18
         print("rest is %d" % rest)
         if rest > 0:
-            data += self.frames[self.frames_max][0:rest]
+            self.data += self.frames[self.frames_max][0:rest]
         else:
-            data += self.frames[self.frames_max]
-        print("got data of length %d" % len(data))
-        return data
+            self.data += self.frames[self.frames_max]
+        print("got data of length %d" % len(self.data))
+        return self
+
+    def raw(self):
+        return self.data
+
+    def str(self):
+        s = "# %d,%d,records=%d,lts=%d,lidx=%d,sid=%d,sp=%d\n" % struct.unpack(">BBHLLHH", self.data[0:16])
+        s += "#\n"
+        n = int((len(self.data) - 16) / 12)
+        for i in range(0, n):
+            s += "%d " % i
+            s += (" 0x%02x%02x" * 6) % struct.unpack(">12B", self.data[16+12*i:28+12*i])
+            s += (" %d" * 6)  % struct.unpack(">6H", self.data[16+12*i:28+12*i])
+            s += "\n"
+        return s
 
 
 def save(filename, data):
-    with open(filename, 'bw') as f:
+    with open(filename, 'w') as f:
         f.write(data)
     f.close()
     print("data was written to",filename)
+
 
 class PlantSensor(DefaultDelegate):
 
@@ -248,6 +265,16 @@ class PlantSensor(DefaultDelegate):
         self.p = Peripheral(p)
         self.p.setDelegate(self)
         self.handles = {}
+
+        self.s_gap = self.p.getServiceByUUID(FP_UUID(FP_GAP))
+        self.c_name = FPRegister(self.s_gap, FP_UUID(FP_DEV_NAME), CT_UTF8)
+
+        self.s_calib = self.p.getServiceByUUID(FP_UUID(FB_CALIB))
+        self.c_calib_data = FPRegister(self.s_calib, FP_UUID(FB_CALIB_DATA), '<11H')
+
+        self.s_clock = self.p.getServiceByUUID(FP_UUID(FB_CLOCK))
+        self.c_time = FPRegister(self.s_clock, FP_UUID(FB_TIME), CT_U32)
+
         self.s_life = self.p.getServiceByUUID(FP_UUID(FP_SERVICE_LIFE))
         self.c_dli = self.s_life.getCharacteristics(FP_UUID(FP_CHAR_LIFE_DLI))[0]
         self.c_dlic = self.s_life.getCharacteristics(FP_UUID(FP_CHAR_LIFE_DLI_CAL))[0]
@@ -281,7 +308,7 @@ class PlantSensor(DefaultDelegate):
         self.p.writeCharacteristic(handle + 1, struct.pack('<H', 0x0))
 
     def handle_dli(self, data):
-        #print("got data for DLI:  %d" % struct.unpack('<H', data))
+        # print("got data for DLI:  %d" % struct.unpack('<H', data))
         return
 
     def handle_dlic(self, data):
@@ -290,25 +317,43 @@ class PlantSensor(DefaultDelegate):
     def handleNotification(self, handle, data):
         # ... perhaps check cHandle
         # ... process 'data'
-        #print("got data for handle 0x%04x" % handle)
+        # print("got data for handle 0x%04x" % handle)
         if handle in self.handles.keys():
             self.handles[handle](data)
 
 
-def life_test(ps):
+def life_test(p):
     my_count = 0
-    ps.set_life_period(1)
+    p.set_life_period(1)
     while True:
         my_count += 1
         if my_count > 10:
             break
-        if not ps.p.waitForNotifications(2.0):
+        if not p.p.waitForNotifications(2.0):
             print("Waiting...")
         # Perhaps do something else here
-    ps.set_life_period(0)
+    p.set_life_period(0)
 
 # life_test(ps)
-for i in range(1, 50):
-    ps = PlantSensor('a0:14:3d:07:cf:d6')  #
-    save('fp-cfd6-%03d.dat' % i, ps.upload.receive(count=i))
-    ps.p.disconnect()
+
+
+def dl_all():
+    for i in range(1, 50):
+        p = PlantSensor('a0:14:3d:07:cf:d6')
+        save('fp-cfd6-%03d.dat' % i, p.upload.receive(count=i))
+        p.p.disconnect()
+
+parser = argparse.ArgumentParser(prog='fp-download', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('--addr', required=True)
+
+args = parser.parse_args()
+
+ps = PlantSensor(args.addr)
+short = ps.c_name.str().split(" ")[2]
+head = '# History data collected by fp-download.py\n'
+head += '# current time: %d\n' % int(time())
+head += '# sensor time: %d\n' % ps.c_time.read()
+head += '# calib: %s\n' % ps.c_calib_data.str()
+head += '#\n'
+save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
+ps.p.disconnect()
