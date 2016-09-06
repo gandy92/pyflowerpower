@@ -1,16 +1,37 @@
 from __future__ import print_function
 
 from bluepy.btle import UUID, Scanner, DefaultDelegate, Peripheral, BTLEException
-import binascii
 import struct
 import argparse
 from time import time
 
+SCRIPT = 'fp-download.py v1.0'
+
 debug = 0
 
+'''
+fp-download.py Copyright 2016 by gandy92@googlemail.com
+
+Reads complete historic data from sensor and stores it in a text file.
+Warning: If used excessively, sensor battery life may be reduced significantly!
+
+Works with python 2.7 and 3.x, requires working bluez installation (v5.37 or above)
+and a fairly recent version of bluepy (best installed w/ pip or pip3), see
+https://github.com/IanHarvey/bluepy
+
+Usage:
+    python fp-download --addr BTADDR
+
+    where BTADDR is the address of the BT-4.0 sensor device
+
+Output file will be named 'hist-ABCD.dat' where ABCD is the short ID of the sensor
+'''
 
 FP_GAP = 0x1800
 FP_DEV_NAME = 0x2A00
+
+FP_INFO = 0x180A
+FP_INFO_FW_VERSION = 0x2A26
 
 FP_SERVICE_LIFE = 0x39e1FA00
 FP_CHAR_LIFE_DLI = 0x39e1FA01
@@ -269,6 +290,9 @@ class PlantSensor(DefaultDelegate):
         self.s_gap = self.p.getServiceByUUID(FP_UUID(FP_GAP))
         self.c_name = FPRegister(self.s_gap, FP_UUID(FP_DEV_NAME), CT_UTF8)
 
+        self.s_info = self.p.getServiceByUUID(FP_UUID(FP_INFO))
+        self.c_fw_ver = FPRegister(self.s_info, FP_UUID(FP_INFO_FW_VERSION), CT_UTF8)
+
         self.s_calib = self.p.getServiceByUUID(FP_UUID(FB_CALIB))
         self.c_calib_data = FPRegister(self.s_calib, FP_UUID(FB_CALIB_DATA), '<11H')
 
@@ -350,10 +374,11 @@ args = parser.parse_args()
 
 ps = PlantSensor(args.addr)
 short = ps.c_name.str().split(" ")[2]
-head = '# History data collected by fp-download.py\n'
+head = '# History data collected by %s\n' % SCRIPT
 head += '# current time: %d\n' % int(time())
 head += '# sensor time: %d\n' % ps.c_time.read()
 head += '# calib: %s\n' % ps.c_calib_data.str()
+head += '# firmware: %s\n' % ps.c_fw_ver.str()
 head += '#\n'
 save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
 ps.p.disconnect()
