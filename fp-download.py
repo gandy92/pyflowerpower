@@ -4,8 +4,9 @@ from bluepy.btle import UUID, Scanner, DefaultDelegate, Peripheral, BTLEExceptio
 import struct
 import argparse
 from time import time
+import string
 
-SCRIPT = 'fp-download.py v1.0'
+SCRIPT = 'fp-download.py v1.1'
 
 debug = 0
 
@@ -95,6 +96,10 @@ class FPRegister:
 
     def getHandle(self):
         return self.char.getHandle()
+
+
+def clean_str(str):
+    return ''.join(filter(lambda x: x in string.printable, str))
 
 
 CT_UTF8 = 'utf8'
@@ -372,13 +377,24 @@ parser.add_argument('--addr', required=True)
 
 args = parser.parse_args()
 
-ps = PlantSensor(args.addr)
+ps = None
+for i in range(0,5):
+    try:
+        ps = PlantSensor(args.addr)
+        break
+    except BTLEException:
+        print("Problems connecting to %s." % args.addr)
+        continue
+if not ps:
+    print("Could not connect to device, bailing out.")
+    exit(-1)
+
 short = ps.c_name.str().split(" ")[2]
 head = '# History data collected by %s\n' % SCRIPT
 head += '# current time: %d\n' % int(time())
 head += '# sensor time: %d\n' % ps.c_time.read()
 head += '# calib: %s\n' % ps.c_calib_data.str()
-head += '# firmware: %s\n' % ps.c_fw_ver.str()
+head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
 head += '#\n'
 save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
 ps.p.disconnect()
