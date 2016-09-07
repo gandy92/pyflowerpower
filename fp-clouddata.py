@@ -67,8 +67,9 @@ def fetch_cloud_samples(sens_id, from_ts, to_ts):
 
     print(location_id)
     i = 0
-    ts_1 = datetime.fromtimestamp(from_ts)
-    ts_e = datetime.fromtimestamp(to_ts)
+    # cloud sample timestamps are in utc
+    ts_1 = datetime.utcfromtimestamp(from_ts)
+    ts_e = datetime.utcfromtimestamp(to_ts)
     data = {}
     while ts_1 < ts_e:
         ts_2 = ts_1 + timedelta(days=7, seconds=-1)
@@ -82,7 +83,7 @@ def fetch_cloud_samples(sens_id, from_ts, to_ts):
         for sample in req.json()['samples']:
             cts = sample['capture_ts']
             dt = parser.parse(cts)
-            ts = int(dt.timestamp() - (datetime.now() - datetime.utcnow()).total_seconds())
+            ts = int(dt.timestamp()) # - (datetime.now() - datetime.utcnow()).total_seconds())
             data[ts] = (sample['air_temperature_celsius'], sample['par_umole_m2s'], sample['vwc_percent'], cts)
 
     return data
