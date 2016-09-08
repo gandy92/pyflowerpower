@@ -34,6 +34,9 @@ FP_DEV_NAME = 0x2A00
 FP_INFO = 0x180A
 FP_INFO_FW_VERSION = 0x2A26
 
+FB_BATTERY = 0x180f
+FB_BATTERY_LEVEL = 0x2A19
+
 FP_SERVICE_LIFE = 0x39e1FA00
 FP_CHAR_LIFE_DLI = 0x39e1FA01
 FP_CHAR_LIFE_DLI_CAL = 0x39e1FA0B
@@ -301,6 +304,9 @@ class PlantSensor(DefaultDelegate):
         self.s_calib = self.p.getServiceByUUID(FP_UUID(FB_CALIB))
         self.c_calib_data = FPRegister(self.s_calib, FP_UUID(FB_CALIB_DATA), '<11H')
 
+        self.s_bat = self.p.getServiceByUUID(FP_UUID(FB_BATTERY))
+        self.r_bat = FPRegister(self.s_bat, FP_UUID(FB_BATTERY_LEVEL), CT_U8)
+
         self.s_clock = self.p.getServiceByUUID(FP_UUID(FB_CLOCK))
         self.c_time = FPRegister(self.s_clock, FP_UUID(FB_TIME), CT_U32)
 
@@ -309,8 +315,8 @@ class PlantSensor(DefaultDelegate):
         self.c_dlic = self.s_life.getCharacteristics(FP_UUID(FP_CHAR_LIFE_DLI_CAL))[0]
         self.c_lifep = self.s_life.getCharacteristics(FP_UUID(FP_CHAR_LIFE_PERIOD))[0]
 
-        self.subscribe(self.c_dli, self.handle_dli)
-        self.subscribe(self.c_dlic, self.handle_dlic)
+        self.r_dli = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_DLI), CT_U16)
+        self.r_dlic = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_DLI_CAL), CT_F32)
 
         self.upload = FPUpload(self.p)
         self.subscribe(self.upload.c_upload_txb, self.upload.handle_tx_buffer)
@@ -320,6 +326,12 @@ class PlantSensor(DefaultDelegate):
         print("handle for dlic: 0x%04x" % self.c_dlic.getHandle())
 
     def set_life_period(self, secs):
+        if secs > 0:
+            self.unsubscribe(self.c_dli, self.handle_dli)
+            self.unsubscribe(self.c_dlic, self.handle_dlic)
+        else:
+            self.subscribe(self.c_dli, self.handle_dli)
+            self.subscribe(self.c_dlic, self.handle_dlic)
         if secs > 255:
             secs = 255
         self.c_lifep.write(struct.pack('<B', secs))
@@ -374,7 +386,9 @@ def dl_all():
 
 parser = argparse.ArgumentParser(prog='fp-download', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--addr', required=True)
-
+parser.add_argument('--light', action='store_const', const=1, default=0)
+parser.add_argument('--battery', action='store_const', const=1, default=0)
+parser.add_argument('--life', action='store_const', const=1, default=0)
 args = parser.parse_args()
 
 ps = None
@@ -388,6 +402,18 @@ for i in range(0,5):
 if not ps:
     print("Could not connect to device, bailing out.")
     exit(-1)
+
+if args.light:
+    print("%s: dli,dlic: %d %f" % (args.addr, ps.r_dli.read(), ps.r_dlic.read()))
+    exit(0)
+
+if args.battery:
+    print("%s: battery: %d" % (args.addr, ps.r_bat.read()))
+    exit(0)
+
+if args.life:
+    life_test(ps)
+    exit(0)
 
 short = ps.c_name.str().split(" ")[2]
 head = '# History data collected by %s\n' % SCRIPT
