@@ -86,12 +86,12 @@ class FPRegister:
 
     def read(self):
         if self.fmt == 'utf8':
-            return self.char.read()
+            return str(self.char.read())
         return self.unpack(self.char.read())
 
     def str(self):
         if self.fmt == 'utf8':
-            return self.char.read()
+            return str(self.char.read())
         return ','.join(map(str, struct.unpack(self.fmt, self.char.read())))
 
     def write(self, data):
