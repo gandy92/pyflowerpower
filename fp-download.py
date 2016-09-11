@@ -39,8 +39,20 @@ FB_BATTERY_LEVEL = 0x2A19
 
 FP_SERVICE_LIFE = 0x39e1FA00
 FP_CHAR_LIFE_DLI = 0x39e1FA01
+FP_CHAR_LIFE_SEC = 0x39e1FA02
+FP_CHAR_LIFE_STEMP = 0x39e1FA03
+FP_CHAR_LIFE_ATEMP = 0x39e1FA04
+FP_CHAR_LIFE_VWC = 0x39e1FA05
 FP_CHAR_LIFE_DLI_CAL = 0x39e1FA0B
 FP_CHAR_LIFE_PERIOD = 0x39e1FA06
+
+FP_SERVICE_NEW = 0x39e1fd80
+FP_CHAR_NEW_1 = 0x39e1fd81
+FP_CHAR_NEW_2 = 0x39e1fd82
+FP_CHAR_NEW_3 = 0x39e1fd83
+FP_CHAR_NEW_4 = 0x39e1fd84
+FP_CHAR_NEW_5 = 0x39e1fd85
+FP_CHAR_NEW_6 = 0x39e1fd86
 
 FP_UPLOAD = 0x39e1FB00
 FP_UPLOAD_TX_BUFFER = 0x39e1FB01
@@ -316,6 +328,10 @@ class PlantSensor(DefaultDelegate):
         self.c_lifep = self.s_life.getCharacteristics(FP_UUID(FP_CHAR_LIFE_PERIOD))[0]
 
         self.r_dli = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_DLI), CT_U16)
+        self.r_soil_ec = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_SEC), CT_U16)
+        self.r_soil_temp = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_STEMP), CT_U16)
+        self.r_air_temp = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_ATEMP), CT_U16)
+        self.r_soil_vwc = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_VWC), CT_U16)
         self.r_dlic = FPRegister(self.s_life, FP_UUID(FP_CHAR_LIFE_DLI_CAL), CT_F32)
 
         self.upload = FPUpload(self.p)
@@ -324,6 +340,15 @@ class PlantSensor(DefaultDelegate):
 
         print("handle for dli : 0x%04x" % self.c_dli.getHandle())
         print("handle for dlic: 0x%04x" % self.c_dlic.getHandle())
+
+    def init_fw_202_regs(self):
+        self.s_new = self.p.getServiceByUUID(FP_UUID(FP_SERVICE_NEW))
+        self.r_new_1 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_1), CT_U16)
+        self.r_new_2 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_2), CT_U16)
+        self.r_new_3 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_3), CT_U16)
+        self.r_new_4 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_4), CT_U16)
+        self.r_new_5 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_5), CT_U16)
+        self.r_new_6 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_6), CT_U8)
 
     def set_life_period(self, secs):
         if secs > 0:
@@ -385,10 +410,20 @@ def dl_all():
         p.p.disconnect()
 
 parser = argparse.ArgumentParser(prog='fp-download', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--addr', required=True)
-parser.add_argument('--light', action='store_const', const=1, default=0)
-parser.add_argument('--battery', action='store_const', const=1, default=0)
-parser.add_argument('--life', action='store_const', const=1, default=0)
+parser.add_argument('--addr', required=True,
+                    help='sensor MAC-address')
+parser.add_argument('--download', action='store_const', const=1, default=0,
+                    help='download history data')
+parser.add_argument('--light', action='store_const', const=1, default=0,
+                    help='print life light sensor values (raw and calibrated)')
+parser.add_argument('--dump', action='store_const', const=1, default=0,
+                    help='print life sensor raw values')
+parser.add_argument('--battery', action='store_const', const=1, default=0,
+                    help='print battery level')
+parser.add_argument('--newregs', action='store_const', const=1, default=0,
+                    help='print values of registers introduced with fw 2.0.2')
+parser.add_argument('--life', action='store_const', const=1, default=0,
+                    help='')
 args = parser.parse_args()
 
 ps = None
@@ -405,22 +440,36 @@ if not ps:
 
 if args.light:
     print("%s: dli,dlic: %d %f" % (args.addr, ps.r_dli.read(), ps.r_dlic.read()))
-    exit(0)
 
 if args.battery:
     print("%s: battery: %d" % (args.addr, ps.r_bat.read()))
-    exit(0)
+
+if args.dump:
+    print("%s: raw soil ec: %d" % (args.addr, ps.r_soil_ec.read()))
+    print("%s: raw soil temp: %d" % (args.addr, ps.r_soil_temp.read()))
+    print("%s: raw air temp: %d" % (args.addr, ps.r_air_temp.read()))
+    print("%s: raw soil vwc: %d" % (args.addr, ps.r_soil_vwc.read()))
+
+if args.newregs:
+    ps.init_fw_202_regs()
+    print("%s: new reg 1: %d" % (args.addr, ps.r_new_1.read()))
+    print("%s: new reg 2: %d" % (args.addr, ps.r_new_2.read()))
+    print("%s: new reg 3: %d" % (args.addr, ps.r_new_3.read()))
+    print("%s: new reg 4: %d" % (args.addr, ps.r_new_4.read()))
+    print("%s: new reg 5: %d" % (args.addr, ps.r_new_5.read()))
+    print("%s: new reg 6: %d" % (args.addr, ps.r_new_6.read()))
 
 if args.life:
     life_test(ps)
-    exit(0)
 
-short = ps.c_name.str().split(" ")[2][0:4]
-head = '# History data collected by %s\n' % SCRIPT
-head += '# current time: %d\n' % int(time())
-head += '# sensor time: %d\n' % ps.c_time.read()
-head += '# calib: %s\n' % ps.c_calib_data.str()
-head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
-head += '#\n'
-save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
+if args.download:
+    short = ps.c_name.str().split(" ")[2][0:4]
+    head = '# History data collected by %s\n' % SCRIPT
+    head += '# current time: %d\n' % int(time())
+    head += '# sensor time: %d\n' % ps.c_time.read()
+    head += '# calib: %s\n' % ps.c_calib_data.str()
+    head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
+    head += '#\n'
+    save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
+
 ps.p.disconnect()
