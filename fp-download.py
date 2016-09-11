@@ -415,7 +415,7 @@ if args.life:
     life_test(ps)
     exit(0)
 
-short = ps.c_name.str().split(" ")[2]
+short = ps.c_name.str().split(" ")[2][0:4]
 head = '# History data collected by %s\n' % SCRIPT
 head += '# current time: %d\n' % int(time())
 head += '# sensor time: %d\n' % ps.c_time.read()
