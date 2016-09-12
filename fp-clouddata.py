@@ -18,6 +18,7 @@ def read_sensor_data_file(filename):
     data = []
     head = ""
     lines = open(filename).read().split('\n');
+    print("Reading from %s..." % filename)
     for n, line in enumerate(lines):
         if len(line) < 1:
             continue
@@ -32,7 +33,13 @@ def read_sensor_data_file(filename):
                         key, value = kv.split('=')
                         params[key] = value
         else:
-             data.append(line.split(' ')[8:14])
+            dvec = line.split(' ')[8:14]
+            if int(dvec[0]) == 0x8000:
+                print("new session %d starts in line %d." % (int(dvec[1]), n))
+                if len(data) > 0:
+                    print("Dropping data from previous session with %d entries." % (len(data)))
+                data = []
+            data.append(dvec)
 
     return params, data, head
 
