@@ -141,8 +141,8 @@ for dev in devices:
         try:
             p = Peripheral(dev)
             break
-        except BTLEException:
-            print("Problems connecting to %s." % dev.addr)
+        except BTLEException as e:
+            print("Problems connecting to %s:" % dev.addr, e)
             continue
     if not p:
         print("Could not connect to device, giving up.")
@@ -175,5 +175,5 @@ for dev in devices:
                         data = '0x'+str(binascii.hexlify(char.read()))
                 print("|    Characteristic || <code>%s</code> || <code>%04x</code> || %s || %s || %s || %s " % (uuid, char.properties, char.propertiesToString(), type, desc, data))
                 print("|-")
-    except BTLEException:
-        print("got an BTLEException: ")
+    except BTLEException as e:
+        print("got an BTLEException: ", e)
