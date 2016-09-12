@@ -427,7 +427,8 @@ parser.add_argument('--life', action='store_const', const=1, default=0,
 args = parser.parse_args()
 
 ps = None
-for i in range(0,5):
+print("Try to connect to %s..." % args.addr)
+for i in range(0, 5):
     try:
         ps = PlantSensor(args.addr)
         break
