@@ -136,8 +136,19 @@ for dev in devices:
     print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
     for (adtype, desc, value) in dev.getScanData():
         print("  %04x: %s = %s" % (adtype, desc, value))
+    print("Try to connect to %s..." % dev.addr)
+    for i in range(0,5):
+        try:
+            p = Peripheral(dev)
+            break
+        except BTLEException:
+            print("Problems connecting to %s." % dev.addr)
+            continue
+    if not p:
+        print("Could not connect to device, giving up.")
+        continue
     try:
-        p = Peripheral(dev)
+        # p = Peripheral(dev)
         p.setDelegate( MyDelegate(None) )
         for service in p.getServices():
             uuid = str(service.uuid)
