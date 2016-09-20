@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from __future__ import print_function
 
 from bluepy.btle import UUID, Scanner, DefaultDelegate, Peripheral, BTLEException
@@ -72,6 +74,26 @@ FB_CALIB_DATA = 0x39e1FE01
 
 FB_CLOCK = 0x39e1FD00
 FB_TIME = 0x39e1FD01
+
+
+def device_is_fp(dev):
+    for (adtype, desc, value) in dev.getScanData():
+        if adtype == 6 and value == '1bc5d5a50200baafe211a88400fae139':
+            return 1
+    return 0
+
+
+class ScanDelegate(DefaultDelegate):
+    def __init__(self):
+        DefaultDelegate.__init__(self)
+
+    def handleDiscovery(self, dev, isNewDev, isNewData):
+        if not device_is_fp(dev):
+            return
+        if isNewDev:
+            print("Discovered device", dev.addr)
+        elif isNewData:
+            print("Received new data from", dev.addr)
 
 
 def FP_UUID(val):
@@ -338,8 +360,8 @@ class PlantSensor(DefaultDelegate):
         self.subscribe(self.upload.c_upload_txb, self.upload.handle_tx_buffer)
         self.subscribe(self.upload.c_upload_txs, self.upload.handle_tx_status)
 
-        print("handle for dli : 0x%04x" % self.c_dli.getHandle())
-        print("handle for dlic: 0x%04x" % self.c_dlic.getHandle())
+        2 <= debug and print("handle for dli : 0x%04x" % self.c_dli.getHandle())
+        2 <= debug and print("handle for dlic: 0x%04x" % self.c_dlic.getHandle())
 
     def init_fw_202_regs(self):
         self.s_new = self.p.getServiceByUUID(FP_UUID(FP_SERVICE_NEW))
@@ -365,7 +387,7 @@ class PlantSensor(DefaultDelegate):
         handle = char.getHandle()
         self.handles[handle] = func
         self.p.writeCharacteristic(handle+1, struct.pack('<H', 0x1))
-        print("registered for handle 0x%04x" % handle)
+        1 <= debug and print("registered for handle 0x%04x" % handle)
         return handle
 
     def unsubscribe(self, handle):
@@ -409,9 +431,64 @@ def dl_all():
         save('fp-cfd6-%03d.dat' % i, p.upload.receive(count=i))
         p.p.disconnect()
 
+def process_sensor(dev,addr):
+    ps = None
+
+    print("Try to connect to %s..." % addr)
+    for i in range(0, 5):
+        try:
+            ps = PlantSensor(dev)
+            break
+        except BTLEException:
+            print("Problems connecting to %s." % addr)
+            continue
+    if not ps:
+        print("Could not connect to device, bailing out.")
+        return
+
+    if args.light:
+        print("%s: dli,dlic: %d %f" % (addr, ps.r_dli.read(), ps.r_dlic.read()))
+
+    if args.battery:
+        print("%s: battery: %d" % (addr, ps.r_bat.read()))
+
+    if args.dump:
+        print("%s: raw soil ec: %d" % (addr, ps.r_soil_ec.read()))
+        print("%s: raw soil temp: %d" % (addr, ps.r_soil_temp.read()))
+        print("%s: raw air temp: %d" % (addr, ps.r_air_temp.read()))
+        print("%s: raw soil vwc: %d" % (addr, ps.r_soil_vwc.read()))
+
+    if args.newregs:
+        ps.init_fw_202_regs()
+        print("%s: new reg 1: %d" % (addr, ps.r_new_1.read()))
+        print("%s: new reg 2: %d" % (addr, ps.r_new_2.read()))
+        print("%s: new reg 3: %d" % (addr, ps.r_new_3.read()))
+        print("%s: new reg 4: %d" % (addr, ps.r_new_4.read()))
+        print("%s: new reg 5: %d" % (addr, ps.r_new_5.read()))
+        print("%s: new reg 6: %d" % (addr, ps.r_new_6.read()))
+
+    if args.life:
+        life_test(ps)
+
+    if args.download:
+        short = ps.c_name.str().split(" ")[2][0:4]
+        head = '# History data collected by %s\n' % SCRIPT
+        head += '# current time: %d\n' % int(time())
+        head += '# sensor time: %d\n' % ps.c_time.read()
+        head += '# calib: %s\n' % ps.c_calib_data.str()
+        head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
+        head += '#\n'
+        save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
+
+    ps.p.disconnect()
+
+
 parser = argparse.ArgumentParser(prog='fp-download', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--addr', required=True,
+parser.add_argument('--addr',
+                    #required=True,
                     help='sensor MAC-address')
+parser.add_argument('--scan', action='store_const', const=1, default=0,
+                    help='query all available sensors')
 parser.add_argument('--download', action='store_const', const=1, default=0,
                     help='download history data')
 parser.add_argument('--light', action='store_const', const=1, default=0,
@@ -426,51 +503,22 @@ parser.add_argument('--life', action='store_const', const=1, default=0,
                     help='')
 args = parser.parse_args()
 
-ps = None
-print("Try to connect to %s..." % args.addr)
-for i in range(0, 5):
-    try:
-        ps = PlantSensor(args.addr)
-        break
-    except BTLEException:
-        print("Problems connecting to %s." % args.addr)
-        continue
-if not ps:
-    print("Could not connect to device, bailing out.")
+if not args.addr and not args.scan:
+    print("Error: specify sensor addr or use option --scan")
     exit(-1)
 
-if args.light:
-    print("%s: dli,dlic: %d %f" % (args.addr, ps.r_dli.read(), ps.r_dlic.read()))
+if args.addr:
+    if args.scan:
+        print("Error: Can not use --addr with --scan")
+        exit(-1)
+    process_sensor(args.addr, args.addr)
 
-if args.battery:
-    print("%s: battery: %d" % (args.addr, ps.r_bat.read()))
+elif args.scan:
+    scanner = Scanner().withDelegate(ScanDelegate())
+    devices = scanner.scan(15.0)
 
-if args.dump:
-    print("%s: raw soil ec: %d" % (args.addr, ps.r_soil_ec.read()))
-    print("%s: raw soil temp: %d" % (args.addr, ps.r_soil_temp.read()))
-    print("%s: raw air temp: %d" % (args.addr, ps.r_air_temp.read()))
-    print("%s: raw soil vwc: %d" % (args.addr, ps.r_soil_vwc.read()))
+    for dev in devices:
+        if device_is_fp(dev):
+            print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
+            process_sensor(dev, dev.addr)
 
-if args.newregs:
-    ps.init_fw_202_regs()
-    print("%s: new reg 1: %d" % (args.addr, ps.r_new_1.read()))
-    print("%s: new reg 2: %d" % (args.addr, ps.r_new_2.read()))
-    print("%s: new reg 3: %d" % (args.addr, ps.r_new_3.read()))
-    print("%s: new reg 4: %d" % (args.addr, ps.r_new_4.read()))
-    print("%s: new reg 5: %d" % (args.addr, ps.r_new_5.read()))
-    print("%s: new reg 6: %d" % (args.addr, ps.r_new_6.read()))
-
-if args.life:
-    life_test(ps)
-
-if args.download:
-    short = ps.c_name.str().split(" ")[2][0:4]
-    head = '# History data collected by %s\n' % SCRIPT
-    head += '# current time: %d\n' % int(time())
-    head += '# sensor time: %d\n' % ps.c_time.read()
-    head += '# calib: %s\n' % ps.c_calib_data.str()
-    head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
-    head += '#\n'
-    save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
-
-ps.p.disconnect()
