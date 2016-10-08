@@ -23,10 +23,8 @@ class ScanDelegate(DefaultDelegate):
         #    print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Received new data from", dev.addr, "rssi:",dev.rssi, "flags:",flags))
 
 scanner = Scanner().withDelegate(ScanDelegate())
-devices = scanner.scan(100.0)
-
-for dev in devices:
-    print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
-    for (adtype, desc, value) in dev.getScanData():
-        print("  %s = %s" % (desc, value))
-
+while 1:
+    try:
+        devices = scanner.scan(100.0)
+    except BTLEException:
+        pass
