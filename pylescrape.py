@@ -1,11 +1,18 @@
 from __future__ import print_function
 
 from time import gmtime, strftime
-from bluepy.btle import Scanner, DefaultDelegate
+from bluepy.btle import Scanner, DefaultDelegate, BTLEException
+import json
 
 class ScanDelegate(DefaultDelegate):
-    def __init__(self):
+    def __init__(self, filename):
         DefaultDelegate.__init__(self)
+        self.art = {}
+        try:
+            self.art = json.loads(open(filename).read())
+        except:
+            print("Could not load address table from file '%s'." % filename)
+            pass
 
     def handleDiscovery(self, dev, isNewDev, isNewData):
         flags = 0
@@ -18,13 +25,22 @@ class ScanDelegate(DefaultDelegate):
         if not flower:
             return
         #if isNewDev:
-        print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Discovered      device", dev.addr, "rssi:",dev.rssi, "flags:",flags)
+        print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), 
+              "Discovered      device", dev.addr, 
+              "rssi:", dev.rssi, 
+              "flags:", flags, self.resolv(dev.addr))
         #elif isNewData:
         #    print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), "Received new data from", dev.addr, "rssi:",dev.rssi, "flags:",flags))
 
-scanner = Scanner().withDelegate(ScanDelegate())
+    def resolv(self, addr):
+        if addr in self.art.keys():
+            return self.art[addr]
+        return ""
+
+scanner = Scanner().withDelegate(ScanDelegate('addresstable.json'))
 while 1:
     try:
-        devices = scanner.scan(100.0)
+        devices = scanner.scan(10.0)
     except BTLEException:
+        print("---")
         pass
