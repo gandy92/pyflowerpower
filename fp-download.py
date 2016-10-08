@@ -184,6 +184,11 @@ class FPUpload:
         self.frame_set = 0
 
         self.data = b""
+        self.records = 0
+        self.lsst_ts = 0
+        self.last_idx = 0
+        self.session = 0
+        self.period = 0
 
     def handle_tx_buffer(self, data):
         data_str = ' %02x'*18 % struct.unpack('<18B', data[2:20])
@@ -297,6 +302,8 @@ class FPUpload:
         else:
             self.data += self.frames[self.frames_max]
         print("got data of length %d" % len(self.data))
+        d1,d2,self.records,self.last_ts,self.last_idx,self.session,self.period = struct.unpack(">BBHLLHH", self.data[0:16])
+
         return self
 
     def raw(self):
@@ -435,7 +442,7 @@ def process_sensor(dev,addr):
     ps = None
 
     print("Try to connect to %s..." % addr)
-    for i in range(0, 5):
+    for i in range(0, 10):
         try:
             ps = PlantSensor(dev)
             break
@@ -478,7 +485,11 @@ def process_sensor(dev,addr):
         head += '# calib: %s\n' % ps.c_calib_data.str()
         head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
         head += '#\n'
-        save('hist-%s.dat' % short, head+ps.upload.receive(count=10000).str())
+        try:
+            data = ps.upload.receive(count=10000).str()
+            save('hist-%s-%03d.dat' % (short, ps.upload.session), head+data)
+        except BTLEException:
+            print("Problems connecting to %s." % addr)
 
     ps.p.disconnect()
 
@@ -515,10 +526,18 @@ if args.addr:
 
 elif args.scan:
     scanner = Scanner().withDelegate(ScanDelegate())
-    devices = scanner.scan(15.0)
+    devices = []
+    try:
+        devices = scanner.scan(15.0)
+    except BTLEException as e:
+        print("Problems during scan:", e)
 
     for dev in devices:
-        if device_is_fp(dev):
-            print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
-            process_sensor(dev, dev.addr)
+        try:
+            if device_is_fp(dev):
+                print("Device %s (%s), RSSI=%d dB" % (dev.addr, dev.addrType, dev.rssi))
+                process_sensor(dev, dev.addr)
+        except BTLEException as e:
+            print("Problems while handling %s:" % dev.addr, e)
+
 
