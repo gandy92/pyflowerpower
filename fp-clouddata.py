@@ -17,7 +17,7 @@ def read_sensor_data_file(filename):
     params = {}
     data = []
     head = ""
-    lines = open(filename).read().split('\n');
+    lines = open(filename).read().split('\n')
     print("Reading from %s..." % filename)
     for n, line in enumerate(lines):
         if len(line) < 1:
@@ -44,16 +44,6 @@ def read_sensor_data_file(filename):
     return params, data, head
 
 
-sens_id = sys.argv[1]
-filename = 'hist-%s.dat' % sens_id
-params, data, head = read_sensor_data_file(filename)
-2 <= debug and print(pformat(params))
-5 <= debug and print(pformat(data))
-startup = int(params['current time']) - int(params['sensor time'])
-last_ts = startup + int(params['lts'])
-first_ts = last_ts - int(params['sp'])*(len(data)-1)
-
-
 def fetch_cloud_samples(sens_id, from_ts, to_ts):
     # todo: create credentials.json if missing and exit with message to fill it in.
     credentials = json.loads(open('credentials.json').read())
@@ -77,7 +67,7 @@ def fetch_cloud_samples(sens_id, from_ts, to_ts):
         return ()
 
     3 <= debug and print(location_id)
-    i = 0
+    # i = 0
     # cloud sample timestamps are in utc
     ts_1 = datetime.utcfromtimestamp(from_ts)
     ts_e = datetime.utcfromtimestamp(to_ts)
@@ -100,25 +90,43 @@ def fetch_cloud_samples(sens_id, from_ts, to_ts):
     return data
 
 
-cdata = fetch_cloud_samples(sens_id, first_ts-450, last_ts+450)
-3 <= debug and print(pformat(cdata))
+def handle_data_file(filename):
+    sens_id = 'ABCD'
+    params, data, head = read_sensor_data_file(filename)
+    sens_addr = params['sensor addr']
+    if len(sens_addr.split(":")) == 6:
+        sens_id = ''.join(sens_addr.split(":")[4:]).upper()
+    sid = int(params['sid'])
+    print("sens_id =", sens_id)
+    2 <= debug and print(pformat(params))
+    5 <= debug and print(pformat(data))
+    startup = int(params['current time']) - int(params['sensor time'])
+    last_ts = startup + int(params['lts'])
+    first_ts = last_ts - int(params['sp'])*(len(data)-1)
 
-f = open('comp-%s.dat' % sens_id, 'w')
-f.write('# Cloud samples collected by %s\n' % SCRIPT)
-f.write(''.join(filter(lambda x: x in string.printable, head)))  # remove non-printable characters
-f.write('#timestamp idx h0 h1 h2 h3 h4 h5 air_temp par vwc\n')
+    cdata = fetch_cloud_samples(sens_id, first_ts-450, last_ts+450)
+    3 <= debug and print(pformat(cdata))
 
-for ts in sorted(cdata.keys()):
-    idx = int((ts - first_ts) / int(params['sp']) + 0.5)
-    if 0 <= idx < len(data):
-        2 <= debug and print(ts, idx, ' '.join(map(str, data[idx])), ' '.join(map(str, cdata[ts])))
-        f.write('%d\t%d\t%s\t%s\n' % (ts, idx, '\t'.join(map(str, data[idx])), '\t'.join(map(str, cdata[ts]))))
+    f = open('comp-oldapi-%s-%03d.dat' % (sens_id, sid), 'w')
+    f.write('# Cloud samples collected by %s\n' % SCRIPT)
+    f.write(''.join(filter(lambda x: x in string.printable, head)))  # remove non-printable characters
+    f.write('#timestamp idx h0 h1 h2 h3 h4 h5 air_temp par vwc\n')
 
-f.close()
+    for ts in sorted(cdata.keys()):
+        idx = int((ts - first_ts) / int(params['sp']) + 0.5)
+        if 0 <= idx < len(data):
+            2 <= debug and print(ts, idx, ' '.join(map(str, data[idx])), ' '.join(map(str, cdata[ts])))
+            f.write('%d\t%d\t%s\t%s\n' % (ts, idx, '\t'.join(map(str, data[idx])), '\t'.join(map(str, cdata[ts]))))
 
-print('sensor data ranges starts at %s (ts=%d)' % (str(datetime.fromtimestamp(first_ts)), first_ts))
-print('                 and ends at %s (ts=%d)' % (str(datetime.fromtimestamp(last_ts)), last_ts))
+    f.close()
 
-1 <= debug and print(datetime.utcnow())
-1 <= debug and print(datetime.now())
+    print('sensor data ranges starts at %s (ts=%d)' % (str(datetime.fromtimestamp(first_ts)), first_ts))
+    print('                 and ends at %s (ts=%d)' % (str(datetime.fromtimestamp(last_ts)), last_ts))
+
+    1 <= debug and print(datetime.utcnow())
+    1 <= debug and print(datetime.now())
+
+
+for fn in sys.argv[1:]:
+    handle_data_file(fn)
 
