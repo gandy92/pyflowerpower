@@ -27,7 +27,7 @@ Usage:
 
     where BTADDR is the address of the BT-4.0 sensor device
 
-Output file will be named 'hist-ABCD.dat' where ABCD is the short ID of the sensor
+Output file will be named 'hist-ABCD-SSID.dat' where ABCD is the short ID of the sensor
 '''
 
 FP_GAP = 0x1800
@@ -185,7 +185,7 @@ class FPUpload:
 
         self.data = b""
         self.records = 0
-        self.lsst_ts = 0
+        self.last_ts = 0
         self.last_idx = 0
         self.session = 0
         self.period = 0
@@ -228,7 +228,7 @@ class FPUpload:
         self.rx_state = state
         self.c_upload_rxs.write(state)
 
-    def get_tx_state(self, state):
+    def get_tx_state(self):
         return self.c_upload_txs.read()
 
     def receive(self, index=None, count=None):
@@ -279,10 +279,12 @@ class FPUpload:
             elif self.tx_state is self.TX_WAIT_ACK:
                 3 <= debug and print("TX WAIT_ACK")
                 if self.frames_complete or self.frames_ready:
-                    2 <= debug and print("frames_complete=%d, frames_ready=%d, send ACK" % (self.frames_complete, self.frames_ready))
+                    2 <= debug and print("frames_complete=%d, frames_ready=%d, send ACK" %
+                                         (self.frames_complete, self.frames_ready))
                     self.c_upload_rxs.write(self.RX_ACK)
                 else:
-                    2 <= debug and print("frames_complete=%d, frames_ready=%d, send NACK" % (self.frames_complete, self.frames_ready))
+                    2 <= debug and print("frames_complete=%d, frames_ready=%d, send NACK" %
+                                         (self.frames_complete, self.frames_ready))
                     self.c_upload_rxs.write(self.RX_NACK)
                 continue
 
@@ -302,7 +304,8 @@ class FPUpload:
         else:
             self.data += self.frames[self.frames_max]
         print("got data of length %d" % len(self.data))
-        d1,d2,self.records,self.last_ts,self.last_idx,self.session,self.period = struct.unpack(">BBHLLHH", self.data[0:16])
+        d1, d2, self.records, self.last_ts, self.last_idx, self.session, self.period = \
+            struct.unpack(">BBHLLHH", self.data[0:16])
 
         return self
 
@@ -316,7 +319,7 @@ class FPUpload:
         for i in range(0, n):
             s += "%d " % i
             s += (" 0x%02x%02x" * 6) % struct.unpack(">12B", self.data[16+12*i:28+12*i])
-            s += (" %d" * 6)  % struct.unpack(">6H", self.data[16+12*i:28+12*i])
+            s += (" %d" * 6) % struct.unpack(">6H", self.data[16+12*i:28+12*i])
             s += "\n"
         return s
 
@@ -325,7 +328,7 @@ def save(filename, data):
     with open(filename, 'w') as f:
         f.write(data)
     f.close()
-    print("data was written to",filename)
+    print("data was written to", filename)
 
 
 class PlantSensor(DefaultDelegate):
@@ -370,6 +373,14 @@ class PlantSensor(DefaultDelegate):
         2 <= debug and print("handle for dli : 0x%04x" % self.c_dli.getHandle())
         2 <= debug and print("handle for dlic: 0x%04x" % self.c_dlic.getHandle())
 
+        self.s_new = None
+        self.r_new_1 = None
+        self.r_new_2 = None
+        self.r_new_3 = None
+        self.r_new_4 = None
+        self.r_new_5 = None
+        self.r_new_6 = None
+
     def init_fw_202_regs(self):
         self.s_new = self.p.getServiceByUUID(FP_UUID(FP_SERVICE_NEW))
         self.r_new_1 = FPRegister(self.s_new, FP_UUID(FP_CHAR_NEW_1), CT_U16)
@@ -381,8 +392,8 @@ class PlantSensor(DefaultDelegate):
 
     def set_life_period(self, secs):
         if secs > 0:
-            self.unsubscribe(self.c_dli, self.handle_dli)
-            self.unsubscribe(self.c_dlic, self.handle_dlic)
+            self.unsubscribe(self.c_dli)
+            self.unsubscribe(self.c_dlic)
         else:
             self.subscribe(self.c_dli, self.handle_dli)
             self.subscribe(self.c_dlic, self.handle_dlic)
@@ -403,11 +414,10 @@ class PlantSensor(DefaultDelegate):
         self.p.writeCharacteristic(handle + 1, struct.pack('<H', 0x0))
 
     def handle_dli(self, data):
-        # print("got data for DLI:  %d" % struct.unpack('<H', data))
-        return
+        2 <= debug and print("got data for DLI:  %d" % struct.unpack('<H', data))
 
     def handle_dlic(self, data):
-        print("got data for DLIC: %f" % struct.unpack('<f', data))
+        2 <= debug and print("got data for DLIC: %f" % struct.unpack('<f', data))
 
     def handleNotification(self, handle, data):
         # ... perhaps check cHandle
@@ -429,50 +439,42 @@ def life_test(p):
         # Perhaps do something else here
     p.set_life_period(0)
 
-# life_test(ps)
 
-
-def dl_all():
-    for i in range(1, 50):
-        p = PlantSensor('a0:14:3d:07:cf:d6')
-        save('fp-cfd6-%03d.dat' % i, p.upload.receive(count=i))
-        p.p.disconnect()
-
-def process_sensor(dev,addr):
+def process_sensor(device, address):
     ps = None
 
-    print("Try to connect to %s..." % addr)
+    print("Try to connect to %s..." % address)
     for i in range(0, 10):
         try:
-            ps = PlantSensor(dev)
+            ps = PlantSensor(device)
             break
         except BTLEException:
-            print("Problems connecting to %s." % addr)
+            print("Problems connecting to %s." % address)
             continue
     if not ps:
         print("Could not connect to device, bailing out.")
         return
 
     if args.light:
-        print("%s: dli,dlic: %d %f" % (addr, ps.r_dli.read(), ps.r_dlic.read()))
+        print("%s: dli,dlic: %d %f" % (address, ps.r_dli.read(), ps.r_dlic.read()))
 
     if args.battery:
-        print("%s: battery: %d" % (addr, ps.r_bat.read()))
+        print("%s: battery: %d" % (address, ps.r_bat.read()))
 
     if args.dump:
-        print("%s: raw soil ec: %d" % (addr, ps.r_soil_ec.read()))
-        print("%s: raw soil temp: %d" % (addr, ps.r_soil_temp.read()))
-        print("%s: raw air temp: %d" % (addr, ps.r_air_temp.read()))
-        print("%s: raw soil vwc: %d" % (addr, ps.r_soil_vwc.read()))
+        print("%s: raw soil ec: %d" % (address, ps.r_soil_ec.read()))
+        print("%s: raw soil temp: %d" % (address, ps.r_soil_temp.read()))
+        print("%s: raw air temp: %d" % (address, ps.r_air_temp.read()))
+        print("%s: raw soil vwc: %d" % (address, ps.r_soil_vwc.read()))
 
     if args.newregs:
         ps.init_fw_202_regs()
-        print("%s: new reg 1: %d" % (addr, ps.r_new_1.read()))
-        print("%s: new reg 2: %d" % (addr, ps.r_new_2.read()))
-        print("%s: new reg 3: %d" % (addr, ps.r_new_3.read()))
-        print("%s: new reg 4: %d" % (addr, ps.r_new_4.read()))
-        print("%s: new reg 5: %d" % (addr, ps.r_new_5.read()))
-        print("%s: new reg 6: %d" % (addr, ps.r_new_6.read()))
+        print("%s: new reg 1: %d" % (address, ps.r_new_1.read()))
+        print("%s: new reg 2: %d" % (address, ps.r_new_2.read()))
+        print("%s: new reg 3: %d" % (address, ps.r_new_3.read()))
+        print("%s: new reg 4: %d" % (address, ps.r_new_4.read()))
+        print("%s: new reg 5: %d" % (address, ps.r_new_5.read()))
+        print("%s: new reg 6: %d" % (address, ps.r_new_6.read()))
 
     if args.life:
         life_test(ps)
@@ -482,6 +484,7 @@ def process_sensor(dev,addr):
         head = '# History data collected by %s\n' % SCRIPT
         head += '# current time: %d\n' % int(time())
         head += '# sensor time: %d\n' % ps.c_time.read()
+        head += '# sensor addr: %s\n' % address
         head += '# calib: %s\n' % ps.c_calib_data.str()
         head += '# firmware: %s\n' % clean_str(ps.c_fw_ver.str())
         head += '#\n'
@@ -489,7 +492,7 @@ def process_sensor(dev,addr):
             data = ps.upload.receive(count=10000).str()
             save('hist-%s-%03d.dat' % (short, ps.upload.session), head+data)
         except BTLEException:
-            print("Problems connecting to %s." % addr)
+            print("Problems connecting to %s." % address)
 
     ps.p.disconnect()
 
