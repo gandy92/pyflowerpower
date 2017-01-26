@@ -2,9 +2,10 @@
 
 import requests
 from datetime import *
-from dateutil import parser
+from dateutil import parser as dateparser
 import json
 from pprint import pformat
+import argparse
 import string
 import sys
 
@@ -44,16 +45,14 @@ def read_sensor_data_file(filename):
     return params, data, head
 
 
-def fetch_cloud_samples(sens_id, from_ts, to_ts):
-    # todo: create credentials.json if missing and exit with message to fill it in.
-    credentials = json.loads(open('credentials.json').read())
+def fetch_cloud_samples_oldapi(credentials, sens_id, from_ts, to_ts):
     credentials['grant_type'] = 'password'
 
-    req = requests.get('https://apiflowerpower.parrot.com/user/v1/authenticate', data=credentials)
+    req = requests.get(credentials['url']+'/user/v1/authenticate', data=credentials)
     access_token = req.json()["access_token"]
     a_header = {'Authorization': 'Bearer ' + access_token}
 
-    req = requests.get('https://apiflowerpower.parrot.com/sensor_data/v3/sync', headers=a_header)
+    req = requests.get(credentials['url']+'/sensor_data/v3/sync', headers=a_header)
 
     location_id = None
     for data in req.json()[u'locations']:
@@ -76,21 +75,85 @@ def fetch_cloud_samples(sens_id, from_ts, to_ts):
         ts_2 = ts_1 + timedelta(days=7, seconds=-1)
         if ts_2 > ts_e:
             ts_2 = ts_e
-        req = requests.get('https://apiflowerpower.parrot.com/sensor_data/v2/sample/location/' + location_id,
+        req = requests.get(credentials['url']+'/sensor_data/v2/sample/location/' + location_id,
                            headers=a_header, params={'from_datetime_utc': ts_1,
                                                      'to_datetime_utc': ts_2})
         4 <= debug and print('Server response: \n {0}'.format(pformat(req.json())))
         ts_1 = ts_2
         for sample in req.json()['samples']:
             cts = sample['capture_ts']
-            dt = parser.parse(cts)
+            dt = dateparser.parse(cts)
             ts = int(dt.timestamp()) # - (datetime.now() - datetime.utcnow()).total_seconds())
             data[ts] = (sample['air_temperature_celsius'], sample['par_umole_m2s'], sample['vwc_percent'], cts)
 
     return data
 
 
-def handle_data_file(filename):
+def fetch_cloud_samples_newapi(credentials, sens_id, from_ts, to_ts):
+    credentials['grant_type'] = 'password'
+
+    req = requests.get(credentials['url']+'/user/v1/authenticate', data=credentials)
+    access_token = req.json()["access_token"]
+    a_header = {'Authorization': 'Bearer ' + access_token}
+
+    req = requests.get(credentials['url']+'/garden/v2/configuration', headers=a_header)
+
+    location_id = None
+    for data in req.json()[u'locations']:
+        if u'sensor' in data and u'sensor_identifier' in data[u'sensor']:
+            sens, loc = data[u'sensor'][u'sensor_identifier'], data[u'location_identifier']
+            if sens[-len(sens_id):] == sens_id:
+                location_id = loc
+
+    if not location_id:
+        print("Could not find location with sensor %s. Bailing out." % sens_id)
+        return ()
+
+    3 <= debug and print(location_id)
+    # i = 0
+    # cloud sample timestamps are in utc
+    ts_1 = datetime.utcfromtimestamp(from_ts)
+    ts_e = datetime.utcfromtimestamp(to_ts)
+    data = {}
+    while ts_1 < ts_e:
+        ts_2 = ts_1 + timedelta(days=7, seconds=-1)
+        if ts_2 > ts_e:
+            ts_2 = ts_e
+        req = requests.get(credentials['url']+'/sensor_data/v6/sample/location/' + location_id,
+                           headers=a_header, params={'from_datetime_utc': ts_1,
+                                                     'to_datetime_utc': ts_2})
+        4 <= debug and print('Server response: \n {0}'.format(pformat(req.json())))
+        ts_1 = ts_2
+        for sample in req.json()['samples']:
+            cts = sample['capture_datetime_utc']
+            dt = dateparser.parse(cts)
+            ts = int(dt.timestamp()) # - (datetime.now() - datetime.utcnow()).total_seconds())
+            data[ts] = (sample['air_temperature_celsius'],
+                        sample['light'],
+                        sample['soil_moisture_percent'],
+                        sample['fertilizer_level'],
+                        sample['battery_percent'],
+                        cts)
+
+    return data
+
+
+def fetch_cloud_samples(profile, sens_id, from_ts, to_ts):
+    # todo: create credentials.json if missing and exit with message to fill it in.
+    profiles = json.loads(open('credentials.json').read())
+    if profile not in profiles.keys():
+        print("Error: profile '%s' not defined in 'credentials.json'. Bailing out." % profile)
+        exit(-1)
+    credentials = profiles[profile]
+    if credentials['method'] == 'oldapi':
+        return fetch_cloud_samples_oldapi(credentials, sens_id, from_ts, to_ts)
+    elif credentials['method'] == 'newapi':
+        return fetch_cloud_samples_newapi(credentials, sens_id, from_ts, to_ts)
+    print("Error: unknon method '%s' in profile '%s'. Bailing out." % (credentials['method'], profile))
+    exit(-2)
+
+
+def handle_data(profile, filename):
     sens_id = 'ABCD'
     params, data, head = read_sensor_data_file(filename)
     sens_addr = params['sensor addr']
@@ -104,10 +167,10 @@ def handle_data_file(filename):
     last_ts = startup + int(params['lts'])
     first_ts = last_ts - int(params['sp'])*(len(data)-1)
 
-    cdata = fetch_cloud_samples(sens_id, first_ts-450, last_ts+450)
+    cdata = fetch_cloud_samples(profile, sens_id, first_ts-450, last_ts+450)
     3 <= debug and print(pformat(cdata))
 
-    f = open('comp-oldapi-%s-%03d.dat' % (sens_id, sid), 'w')
+    f = open('comp-%s-%s-%03d.dat' % (profile, sens_id, sid), 'w')
     f.write('# Cloud samples collected by %s\n' % SCRIPT)
     f.write(''.join(filter(lambda x: x in string.printable, head)))  # remove non-printable characters
     f.write('#timestamp idx h0 h1 h2 h3 h4 h5 air_temp par vwc\n')
@@ -127,6 +190,16 @@ def handle_data_file(filename):
     1 <= debug and print(datetime.now())
 
 
-for fn in sys.argv[1:]:
-    handle_data_file(fn)
+parser = argparse.ArgumentParser(prog=SCRIPT, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('-p', '--profile', required=True,
+                    help='use specified API profile as defined in credentials.json')
+parser.add_argument('file', nargs='+',
+                    help='downloaded sensor data')
+args = parser.parse_args()
+
+
+
+
+for fn in args.file:
+    handle_data(args.profile, fn)
 

@@ -22,8 +22,15 @@ Add matching cloud data to sensor history data for correlation analysis.
 Currently only works with the old cloud API.  Data retrieval from new
 cloud API will be added as an alternative, not a replacement.
 
-For cloud API access, credentials must be supplied in a file `credentials.json`.
+For cloud API access, credentials must be supplied in a file `credentials.json` in form of a profile
+(e.g. named "oldapi" or "newapi" for the old and new cloud API, respectively). The credentials must specify
+a "method" with value "oldapi" or "newapi" to choose the right API methods and the base URL of the API server. 
 See example `credentials.json.tmpl`.
+
+One of the profile names specified in `credentials.json` must be passed to the script. For details, check
+```
+fp-clouddata.py -h
+```
 
 
 ## Supplementary scripts
