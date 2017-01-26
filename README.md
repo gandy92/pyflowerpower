@@ -2,6 +2,13 @@
 A collection of python scripts to support analyzing the FP sensor data structures.
 Eventually, the analysis may allow for a cloud-less tool for sensor data retrieval.
 
+## Requirements
+For the BLE related scripts to work, the latest version of [bluepy](https://github.com/IanHarvey/bluepy)
+is required, preferably installed with pip:
+```
+sudo -h pip install bluepy
+```
+Also, a fairly recent version of bluez (version 5.41 or above) is required.
 
 ## Scripts for sensor data analysis
 
