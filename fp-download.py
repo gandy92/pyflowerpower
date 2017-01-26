@@ -294,6 +294,9 @@ class FPUpload:
                 break
 
         print("upload done.")
+        self.data = []
+        if len(self.frames) < 2:
+            return self
         self.data = self.frames[1]
         for i in range(2, self.frames_max):
             self.data += self.frames[i]
