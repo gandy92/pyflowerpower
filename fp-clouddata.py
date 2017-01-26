@@ -70,6 +70,7 @@ def fetch_cloud_samples_oldapi(credentials, sens_id, from_ts, to_ts):
     # cloud sample timestamps are in utc
     ts_1 = datetime.utcfromtimestamp(from_ts)
     ts_e = datetime.utcfromtimestamp(to_ts)
+    titles = ['air_temp', 'par_umole_m2s', 'vwc_percent', 'utc']
     data = {}
     while ts_1 < ts_e:
         ts_2 = ts_1 + timedelta(days=7, seconds=-1)
@@ -86,7 +87,7 @@ def fetch_cloud_samples_oldapi(credentials, sens_id, from_ts, to_ts):
             ts = int(dt.timestamp()) # - (datetime.now() - datetime.utcnow()).total_seconds())
             data[ts] = (sample['air_temperature_celsius'], sample['par_umole_m2s'], sample['vwc_percent'], cts)
 
-    return data
+    return titles, data
 
 
 def fetch_cloud_samples_newapi(credentials, sens_id, from_ts, to_ts):
@@ -114,6 +115,8 @@ def fetch_cloud_samples_newapi(credentials, sens_id, from_ts, to_ts):
     # cloud sample timestamps are in utc
     ts_1 = datetime.utcfromtimestamp(from_ts)
     ts_e = datetime.utcfromtimestamp(to_ts)
+
+    titles = ['air_temp', 'light_level', 'moisture_percent', 'fertilizer_level', 'battery', 'utc']
     data = {}
     while ts_1 < ts_e:
         ts_2 = ts_1 + timedelta(days=7, seconds=-1)
@@ -135,7 +138,7 @@ def fetch_cloud_samples_newapi(credentials, sens_id, from_ts, to_ts):
                         sample['battery_percent'],
                         cts)
 
-    return data
+    return titles, data
 
 
 def fetch_cloud_samples(profile, sens_id, from_ts, to_ts):
@@ -167,13 +170,13 @@ def handle_data(profile, filename):
     last_ts = startup + int(params['lts'])
     first_ts = last_ts - int(params['sp'])*(len(data)-1)
 
-    cdata = fetch_cloud_samples(profile, sens_id, first_ts-450, last_ts+450)
+    column_titles, cdata = fetch_cloud_samples(profile, sens_id, first_ts-450, last_ts+450)
     3 <= debug and print(pformat(cdata))
 
     f = open('comp-%s-%s-%03d.dat' % (profile, sens_id, sid), 'w')
     f.write('# Cloud samples collected by %s\n' % SCRIPT)
     f.write(''.join(filter(lambda x: x in string.printable, head)))  # remove non-printable characters
-    f.write('#timestamp idx h0 h1 h2 h3 h4 h5 air_temp par vwc\n')
+    f.write('#timestamp idx h0 h1 h2 h3 h4 h5 '+(' '.join(column_titles))+'\n')
 
     for ts in sorted(cdata.keys()):
         idx = int((ts - first_ts) / int(params['sp']) + 0.5)
